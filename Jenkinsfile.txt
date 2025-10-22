@@ -1,0 +1,47 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Clone') {
+            steps {
+                git branch: 'main',
+                    url: 'https://github.com/nilver987/PDS-2025-2-test-sonar-test.git'
+            }
+        }
+
+        stage('Install Composer Dependencies') {
+            steps {
+                sh """
+                    composer install --no-interaction --prefer-dist --no-progress
+                """
+            }
+        }
+
+        stage('Prepare Environment') {
+            steps {
+                sh """
+                    cp .env.example .env || true
+                    php artisan key:generate
+                    touch database/database.sqlite
+                """
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
+                sh """
+                    php artisan test
+                """
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ TESTS OK"
+        }
+        failure {
+            echo "❌ TESTS FAILED"
+        }
+    }
+}
