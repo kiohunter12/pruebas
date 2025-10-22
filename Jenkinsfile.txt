@@ -5,7 +5,7 @@ pipeline {
         stage('Clone') {
             steps {
                 git branch: 'main',
-                    url: 'https://github.com/nilver987/PDS-2025-2-test-sonar-test.git'
+                    url: 'https://github.com/kiohunter12/pruebas.git'
             }
         }
 
