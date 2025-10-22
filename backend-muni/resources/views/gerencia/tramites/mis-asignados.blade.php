@@ -181,7 +181,18 @@
                                     @if($expediente->currentStep)
                                     <div class="flex items-center text-sm text-gray-600">
                                         <i class="fas fa-tasks text-purple-500 mr-2"></i>
-                                        <span>{{ $expediente->currentStep->nombre }}</span>
+                                        <div>
+                                            <div>{{ $expediente->currentStep->nombre }}</div>
+                                            @php
+                                                $progress = $expediente->workflowProgress->firstWhere('workflow_step_id', $expediente->currentStep->id);
+                                            @endphp
+                                            <div class="text-xs text-gray-500">
+                                                Responsable: {{ $progress && $progress->asignado ? $progress->asignado->name : 'Sin asignar' }}
+                                                @if($progress && $progress->fecha_limite)
+                                                    - Quedan {{ now()->diffInDays($progress->fecha_limite, false) }} días
+                                                @endif
+                                            </div>
+                                        </div>
                                     </div>
                                     @endif
                                     
@@ -192,6 +203,9 @@
                                         <span>{{ $expediente->documentos->count() }} documento(s)</span>
                                     </div>
                                     @endif
+
+                                    
+                                    
 
                                     <!-- Solicitante -->
                                     <div class="flex items-center text-sm text-gray-600">

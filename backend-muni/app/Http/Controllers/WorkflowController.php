@@ -157,7 +157,7 @@ class WorkflowController extends Controller
     public function show(Workflow $workflow)
     {
         if (request()->wantsJson()) {
-            return response()->json(['success' => true, 'data' => $workflow]);
+              return response()->json(['success' => true, 'workflow' => $workflow]);
         }
         
         // Cargar pasos con sus documentos
@@ -220,7 +220,7 @@ class WorkflowController extends Controller
         return redirect()->route('workflows.index')->with('success', 'Workflow eliminado exitosamente');
     }
 
-    public function duplicate($id): JsonResponse
+    public function clone($id): JsonResponse
     {
         $newWorkflow = $this->workflowRepo->duplicate($id);
         return response()->json(['success' => true, 'message' => 'Workflow duplicado exitosamente', 'data' => $newWorkflow]);

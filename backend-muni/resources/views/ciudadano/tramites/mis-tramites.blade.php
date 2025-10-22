@@ -143,6 +143,8 @@
                                         <span>{{ $expediente->documentos->count() }} documento(s)</span>
                                     </div>
                                     @endif
+
+                                
                                 </div>
                             </div>
                             

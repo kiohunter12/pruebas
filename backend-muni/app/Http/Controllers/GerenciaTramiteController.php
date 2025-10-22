@@ -30,12 +30,15 @@ class GerenciaTramiteController extends Controller
         }
         
         // Obtener expedientes asignados al usuario actual en el workflow
+        // Incluir los pasos del workflow para poder renderizar el flujo (flujo de esferas)
         $expedientes = Expediente::with([
-            'tipoTramite',
+            'tipoTramite.workflow.steps',
+            'workflow.steps',
             'gerencia',
             'currentStep',
             'workflow',
-            'documentos'
+            'documentos',
+            'workflowProgress.asignado'
         ])
         ->whereHas('workflowProgress', function($query) use ($user) {
             $query->where('asignado_a', $user->id)
@@ -59,20 +62,74 @@ class GerenciaTramiteController extends Controller
         if (!$gerencia) {
             abort(403, 'No tienes una gerencia asignada');
         }
-        
+        // Buscar expediente por id (sin filtrar por gerencia) y luego autorizar
         $expediente = Expediente::with([
+            'workflow.steps',
             'tipoTramite.workflow.steps',
             'gerencia',
             'documentos',
             'historial.usuario',
-            'workflowProgress',
+            'workflowProgress.asignado.gerencia',
             'currentStep',
             'usuarioRegistro'
-        ])
-        ->where('gerencia_id', $gerencia->id)
-        ->findOrFail($id);
-        
-        return view('gerencia.tramites.show', compact('expediente'));
+        ])->findOrFail($id);
+
+        // Autorizar acceso: permitir si
+        // - el expediente pertenece a la misma gerencia del usuario, o
+        // - el usuario está asignado en algún progreso del workflow de este expediente
+        $assignedToUser = $expediente->workflowProgress()
+            ->where('asignado_a', $user->id)
+            ->exists();
+
+        if ($expediente->gerencia_id !== $gerencia->id && !$assignedToUser) {
+            // Mantener comportamiento seguro (404) si no tiene acceso
+            abort(404);
+        }
+        // Filtrar documentos para mostrar solo los relevantes a la etapa actual
+        $visibleDocuments = $expediente->documentos;
+
+        try {
+            $currentStep = $expediente->currentStep;
+
+            if ($currentStep && $currentStep->documentos && $currentStep->documentos->count() > 0) {
+                // Obtener los tipos de documento requeridos por la etapa
+                $requiredTipoIds = $currentStep->documentos->pluck('tipo_documento_id')->toArray();
+
+                // Cargar metadatos de tipos para comparaciones por nombre/codigo si fuera necesario
+                $tipos = \App\Models\TipoDocumento::whereIn('id', $requiredTipoIds)->get();
+                $tipoIds = $tipos->pluck('id')->map(fn($v) => (string)$v)->toArray();
+                $tipoNombres = $tipos->pluck('nombre')->map(fn($v) => strtolower((string)$v))->toArray();
+                $tipoCodigos = $tipos->pluck('codigo')->map(fn($v) => strtolower((string)$v))->toArray();
+
+                $visibleDocuments = $expediente->documentos->filter(function($doc) use ($tipoIds, $tipoNombres, $tipoCodigos) {
+                    $docTipo = $doc->tipo_documento;
+
+                    // Si el documento guarda el id del tipo (número/string numérico)
+                    if (is_numeric($docTipo) && in_array((string)$docTipo, $tipoIds, true)) {
+                        return true;
+                    }
+
+                    // Comparar contra nombre o codigo del tipo (por si guardaron texto)
+                    $docTipoLower = strtolower((string)$docTipo);
+                    if (in_array($docTipoLower, $tipoNombres, true) || in_array($docTipoLower, $tipoCodigos, true)) {
+                        return true;
+                    }
+
+                    return false;
+                })->values();
+            } else {
+                // Si la etapa no define documentos, mostrar documentos subidos por usuarios de la gerencia
+                $visibleDocuments = $expediente->documentos->filter(function($doc) use ($gerencia) {
+                    return $doc->usuarioSubio && $doc->usuarioSubio->gerencia_id === $gerencia->id;
+                })->values();
+            }
+        } catch (\Exception $e) {
+            // En caso de cualquier problema, mostrar todos los documentos (fall-safe)
+            \Log::warning('Error filtrando documentos para gerencia.show: ' . $e->getMessage());
+            $visibleDocuments = $expediente->documentos;
+        }
+
+        return view('gerencia.tramites.show', compact('expediente', 'visibleDocuments'));
     }
 
     /**
@@ -92,8 +149,44 @@ class GerenciaTramiteController extends Controller
             return redirect()->back()->with('error', 'No tienes una gerencia asignada');
         }
         
-        $expediente = Expediente::where('gerencia_id', $gerencia->id)
-            ->findOrFail($id);
+        // Cargar expediente sin filtrar por gerencia; validaremos acceso a continuación.
+        $expediente = Expediente::findOrFail($id);
+
+        // Autorización: permitir aprobar si
+        // - el expediente pertenece a la misma gerencia del usuario, o
+        // - el usuario pertenece a una subgerencia cuya gerencia padre es la del expediente, o
+        // - el usuario está asignado en el progreso del workflow de este expediente, o
+        // - el usuario tiene el permiso 'aprobar_tramite'.
+        $assignedToUser = $expediente->workflowProgress()
+            ->where('asignado_a', $user->id)
+            ->exists();
+
+        $hasPermission = false;
+        try {
+            if (method_exists($user, 'hasPermissionTo') && $user->hasPermissionTo('aprobar_tramite')) {
+                $hasPermission = true;
+            }
+        } catch (\Exception $e) {
+            $hasPermission = false;
+        }
+
+        $allowedByGerencia = false;
+        if ($user->gerencia && $expediente->gerencia) {
+            // Mismo nivel (misma gerencia)
+            if ($user->gerencia->id === $expediente->gerencia->id) {
+                $allowedByGerencia = true;
+            }
+
+            // Si el usuario pertenece a una subgerencia cuya gerencia_padre es la del expediente
+            if (!$allowedByGerencia && $user->gerencia->gerencia_padre_id === $expediente->gerencia->id) {
+                $allowedByGerencia = true;
+            }
+        }
+
+        if (!$allowedByGerencia && !$assignedToUser && !$hasPermission) {
+            // Mantener comportamiento seguro (404) si no tiene acceso
+            abort(404);
+        }
         
         // Guardar paso anterior para el historial
         $pasoAnterior = $expediente->currentStep ? $expediente->currentStep->nombre : 'Inicio';
@@ -159,13 +252,49 @@ class GerenciaTramiteController extends Controller
             return redirect()->back()->with('error', 'No tienes una gerencia asignada');
         }
 
-        $expediente = Expediente::where('gerencia_id', $gerencia->id)
-            ->findOrFail($id);
+        // Cargar expediente sin filtrar por gerencia; validaremos acceso como en avanzar()
+        $expediente = Expediente::findOrFail($id);
 
         // Verificar que el expediente esté en proceso o pendiente
         if (!in_array($expediente->estado, ['pendiente', 'en_proceso', 'observado', 'en_revision'])) {
             return redirect()->back()
                 ->with('error', 'Este trámite no puede ser aprobado en su estado actual');
+        }
+
+        // Autorización: permitir aprobar si
+        // - el expediente pertenece a la misma gerencia del usuario, o
+        // - el usuario pertenece a una subgerencia cuya gerencia padre es la del expediente, o
+        // - el usuario está asignado en el progreso del workflow de este expediente, o
+        // - el usuario tiene el permiso 'aprobar_tramite'.
+        $assignedToUser = $expediente->workflowProgress()
+            ->where('asignado_a', $user->id)
+            ->exists();
+
+        $hasPermission = false;
+        try {
+            if (method_exists($user, 'hasPermissionTo') && $user->hasPermissionTo('aprobar_tramite')) {
+                $hasPermission = true;
+            }
+        } catch (\Exception $e) {
+            $hasPermission = false;
+        }
+
+        $allowedByGerencia = false;
+        if ($user->gerencia && $expediente->gerencia) {
+            // Mismo nivel (misma gerencia)
+            if ($user->gerencia->id === $expediente->gerencia->id) {
+                $allowedByGerencia = true;
+            }
+
+            // Si el usuario pertenece a una subgerencia cuya gerencia_padre es la del expediente
+            if (!$allowedByGerencia && $user->gerencia->gerencia_padre_id === $expediente->gerencia->id) {
+                $allowedByGerencia = true;
+            }
+        }
+
+        if (!$allowedByGerencia && !$assignedToUser && !$hasPermission) {
+            // Mantener comportamiento seguro (404) si no tiene acceso
+            abort(404);
         }
 
         // Obtener el progreso del workflow actual
@@ -243,13 +372,49 @@ class GerenciaTramiteController extends Controller
             return redirect()->back()->with('error', 'No tienes una gerencia asignada');
         }
 
-        $expediente = Expediente::where('gerencia_id', $gerencia->id)
-            ->findOrFail($id);
+        // Cargar expediente sin filtrar por gerencia; validaremos acceso a continuación.
+        $expediente = Expediente::findOrFail($id);
 
         // Verificar que el expediente esté en proceso o pendiente
         if (!in_array($expediente->estado, ['pendiente', 'en_proceso', 'observado', 'en_revision'])) {
             return redirect()->back()
                 ->with('error', 'Este trámite no puede ser rechazado en su estado actual');
+        }
+
+        // Autorización: permitir rechazar si
+        // - el expediente pertenece a la misma gerencia del usuario, o
+        // - el usuario pertenece a una subgerencia cuya gerencia padre es la del expediente, o
+        // - el usuario está asignado en el progreso del workflow de este expediente, o
+        // - el usuario tiene el permiso 'rechazar_tramite'.
+        $assignedToUser = $expediente->workflowProgress()
+            ->where('asignado_a', $user->id)
+            ->exists();
+
+        $hasPermission = false;
+        try {
+            if (method_exists($user, 'hasPermissionTo') && $user->hasPermissionTo('rechazar_tramite')) {
+                $hasPermission = true;
+            }
+        } catch (\Exception $e) {
+            $hasPermission = false;
+        }
+
+        $allowedByGerencia = false;
+        if ($user->gerencia && $expediente->gerencia) {
+            // Mismo nivel (misma gerencia)
+            if ($user->gerencia->id === $expediente->gerencia->id) {
+                $allowedByGerencia = true;
+            }
+
+            // Si el usuario pertenece a una subgerencia cuya gerencia_padre es la del expediente
+            if (!$allowedByGerencia && $user->gerencia->gerencia_padre_id === $expediente->gerencia->id) {
+                $allowedByGerencia = true;
+            }
+        }
+
+        if (!$allowedByGerencia && !$assignedToUser && !$hasPermission) {
+            // Mantener comportamiento seguro (404) si no tiene acceso
+            abort(404);
         }
 
         // Obtener el progreso del workflow actual
@@ -302,8 +467,44 @@ class GerenciaTramiteController extends Controller
             return redirect()->back()->with('error', 'No tienes una gerencia asignada');
         }
 
-        $expediente = Expediente::where('gerencia_id', $gerencia->id)
-            ->findOrFail($id);
+        // Cargar expediente sin filtrar por gerencia; validaremos acceso a continuación.
+        $expediente = Expediente::findOrFail($id);
+
+        // Autorización: permitir observar si
+        // - el expediente pertenece a la misma gerencia del usuario, o
+        // - el usuario pertenece a una subgerencia cuya gerencia padre es la del expediente, o
+        // - el usuario está asignado en el progreso del workflow de este expediente, o
+        // - el usuario tiene el permiso 'observar_tramite'.
+        $assignedToUser = $expediente->workflowProgress()
+            ->where('asignado_a', $user->id)
+            ->exists();
+
+        $hasPermission = false;
+        try {
+            if (method_exists($user, 'hasPermissionTo') && $user->hasPermissionTo('observar_tramite')) {
+                $hasPermission = true;
+            }
+        } catch (\Exception $e) {
+            $hasPermission = false;
+        }
+
+        $allowedByGerencia = false;
+        if ($user->gerencia && $expediente->gerencia) {
+            // Mismo nivel (misma gerencia)
+            if ($user->gerencia->id === $expediente->gerencia->id) {
+                $allowedByGerencia = true;
+            }
+
+            // Si el usuario pertenece a una subgerencia cuya gerencia_padre es la del expediente
+            if (!$allowedByGerencia && $user->gerencia->gerencia_padre_id === $expediente->gerencia->id) {
+                $allowedByGerencia = true;
+            }
+        }
+
+        if (!$allowedByGerencia && !$assignedToUser && !$hasPermission) {
+            // Mantener comportamiento seguro (404) si no tiene acceso
+            abort(404);
+        }
 
         // Actualizar estado si es necesario
         if ($expediente->estado === 'en_proceso' || $expediente->estado === 'pendiente') {

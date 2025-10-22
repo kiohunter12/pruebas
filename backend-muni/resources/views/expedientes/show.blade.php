@@ -53,6 +53,25 @@
                 </div>
             </dl>
 
+            <div class="mt-4">
+                <h4 class="text-sm font-medium text-gray-700 mb-2">Paso Actual</h4>
+                <div class="text-sm text-gray-800 bg-gray-50 p-3 rounded">
+                    @if($expediente->currentStep)
+                        <strong>{{ $expediente->currentStep->nombre }}</strong>
+                        <div class="text-xs text-gray-500">
+                            Responsable: {{ $currentProgress && $currentProgress->asignado ? $currentProgress->asignado->name : 'Sin asignar' }}
+                            @if($currentProgress && $currentProgress->fecha_limite)
+                                - Quedan {{ now()->diffInDays($currentProgress->fecha_limite, false) }} días
+                            @endif
+                        </div>
+                    @elseif($expediente->workflow)
+                        <span class="text-gray-500">Workflow: {{ $expediente->workflow->nombre }}</span>
+                    @else
+                        <span class="text-gray-500">No hay workflow asignado</span>
+                    @endif
+                </div>
+            </div>
+
             <div class="mt-6">
                 <h4 class="text-sm font-medium text-gray-700 mb-2">Descripción</h4>
                 <p class="text-sm text-gray-600 bg-gray-50 p-3 rounded">{{ $expediente->descripcion }}</p>

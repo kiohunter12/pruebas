@@ -277,7 +277,8 @@ class CiudadanoTramiteController extends Controller
      */
     public function misTramites()
     {
-        $expedientes = Expediente::with(['tipoTramite', 'gerencia', 'documentos'])
+        // Eager-load workflow steps to render the flujo de esferas in the list
+        $expedientes = Expediente::with(['tipoTramite.workflow.steps', 'gerencia', 'documentos', 'workflow', 'workflowProgress.asignado'])
             ->where('usuario_registro_id', auth()->id())
             ->orderBy('created_at', 'desc')
             ->paginate(10);
@@ -291,11 +292,12 @@ class CiudadanoTramiteController extends Controller
     public function show($id)
     {
         $expediente = Expediente::with([
+            'workflow.steps',
             'tipoTramite.workflow.steps', 
             'gerencia', 
             'documentos', 
             'historial.usuario',
-            'workflowProgress',
+            'workflowProgress.asignado.gerencia',
             'currentStep'
         ])
             ->where('usuario_registro_id', auth()->id())

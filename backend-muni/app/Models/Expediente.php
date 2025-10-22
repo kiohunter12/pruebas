@@ -96,6 +96,44 @@ class Expediente extends Model
         return $this->belongsTo(User::class, 'citizen_id');
     }
 
+    /**
+     * Buscar un usuario responsable dentro de una gerencia por prioridad de roles.
+     * Si no se encuentra en la gerencia, buscar en subgerencias.
+     */
+    protected function findResponsibleUserInGerencia(int $gerenciaId, array $priorityRoles)
+    {
+        // Buscar en la gerencia indicada por prioridad de roles
+        foreach ($priorityRoles as $role) {
+            $usuario = User::where('gerencia_id', $gerenciaId)
+                ->whereHas('roles', function($q) use ($role) {
+                    $q->where('name', $role);
+                })
+                ->first();
+
+            if ($usuario) {
+                return $usuario;
+            }
+        }
+
+        // Si no hay en la gerencia, buscar en subgerencias
+        $subGerencias = Gerencia::where('gerencia_padre_id', $gerenciaId)->pluck('id');
+        if ($subGerencias->count() > 0) {
+            foreach ($priorityRoles as $role) {
+                $usuario = User::whereIn('gerencia_id', $subGerencias->toArray())
+                    ->whereHas('roles', function($q) use ($role) {
+                        $q->where('name', $role);
+                    })
+                    ->first();
+
+                if ($usuario) {
+                    return $usuario;
+                }
+            }
+        }
+
+        return null;
+    }
+
     public function solicitante()
     {
         return $this->belongsTo(User::class, 'solicitante_id');
@@ -399,23 +437,20 @@ class Expediente extends Model
             $responsableId = $siguienteEtapa->responsable_id;
             \Log::info('✅ Responsable es usuario', ['usuario_id' => $responsableId]);
         } elseif ($siguienteEtapa->responsable_tipo === 'gerencia' && $siguienteEtapa->responsable_id) {
-            // Buscar un usuario de la gerencia especificada con rol adecuado
-            $usuario = User::where('gerencia_id', $siguienteEtapa->responsable_id)
-                ->whereHas('roles', function($query) {
-                    $query->whereIn('name', ['jefe_gerencia', 'subgerente', 'gerente']);
-                })
-                ->first();
-            
+            // Buscar un usuario de la gerencia especificada por prioridad de roles
+            $priorityRoles = ['gerente', 'subgerente', 'jefe_gerencia'];
+            $usuario = $this->findResponsibleUserInGerencia($siguienteEtapa->responsable_id, $priorityRoles);
+
             if ($usuario) {
                 $responsableId = $usuario->id;
-                \Log::info('✅ Responsable encontrado en gerencia', [
+                \Log::info('✅ Responsable encontrado en gerencia (con prioridad)', [
                     'gerencia_id' => $siguienteEtapa->responsable_id,
                     'usuario' => $usuario->name,
                     'usuario_id' => $responsableId,
                     'rol' => $usuario->roles->pluck('name')->toArray()
                 ]);
             } else {
-                \Log::warning('⚠️ No se encontró usuario responsable en gerencia', [
+                \Log::warning('⚠️ No se encontró usuario responsable en gerencia ni subgerencias', [
                     'gerencia_id' => $siguienteEtapa->responsable_id
                 ]);
             }

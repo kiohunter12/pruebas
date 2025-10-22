@@ -202,8 +202,8 @@ class ExpedienteController extends Controller
             // Generar número de expediente
             $numero = $this->generarNumeroExpediente();
 
-            // Crear expediente
-            $expediente = Expediente::create([
+            // Crear expediente y asignar/iniciar workflow automáticamente
+            $expediente = Expediente::crearConAsignacionAutomatica([
                 'numero' => $numero,
                 'solicitante_nombre' => $request->solicitante_nombre,
                 'solicitante_dni' => $request->solicitante_dni,
@@ -293,7 +293,9 @@ class ExpedienteController extends Controller
             'usuarioResolucion',
             'usuarioFirma',
             'documentos',
-            'historial.usuario'
+            'historial.usuario',
+            'currentStep',
+            'workflow.steps'
         ]);
 
         // Si es una solicitud de API, devolver JSON
@@ -305,7 +307,17 @@ class ExpedienteController extends Controller
         }
 
         // Si es una solicitud web, devolver vista
-        return view('expedientes.show', compact('expediente'));
+        // Obtener progreso actual (si existe) con usuario asignado
+        $currentProgress = null;
+        if ($expediente->currentStep) {
+            $currentProgress = $expediente->workflowProgress()
+                ->where('workflow_step_id', $expediente->currentStep->id)
+                ->whereIn('estado', ['pendiente', 'en_proceso'])
+                ->with('asignado')
+                ->first();
+        }
+
+        return view('expedientes.show', compact('expediente', 'currentProgress'));
     }
 
     /**

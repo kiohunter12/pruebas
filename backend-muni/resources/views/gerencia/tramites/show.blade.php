@@ -177,96 +177,72 @@
                 </div>
                 <div class="p-8">
                     @php
-                        $steps = $expediente->tipoTramite->workflow->steps->sortBy('orden');
+                        $displayWorkflow = $expediente->workflow ?? ($expediente->tipoTramite->workflow ?? null);
+                        $steps = $displayWorkflow->steps->sortBy('orden');
                         $currentStepId = $expediente->current_step_id;
                         $currentStepOrder = $expediente->currentStep ? $expediente->currentStep->orden : 0;
                     @endphp
-                    
-                    <!-- Timeline Horizontal con Overflow -->
+
                     <div class="overflow-x-auto pb-4">
-                        <div class="flex items-start min-w-max px-4" style="gap: 0;">
+                        <div class="flex items-start min-w-max px-6 py-6" style="gap: 24px;">
                             @foreach($steps as $index => $step)
                                 @php
                                     $isCompleted = $step->orden < $currentStepOrder;
                                     $isCurrent = $step->id == $currentStepId;
-                                    $isPending = $step->orden > $currentStepOrder;
+                                    $stepProgress = $expediente->workflowProgress->firstWhere('workflow_step_id', $step->id);
                                 @endphp
-                                
-                                <!-- Contenedor del paso -->
-                                <div class="flex items-center">
-                                    <!-- Información del paso -->
-                                    <div class="flex flex-col items-center" style="width: 180px;">
-                                        <!-- Esfera del paso -->
-                                        <div class="relative z-10 flex items-center justify-center w-16 h-16 rounded-full border-4 
-                                            {{ $isCompleted ? 'bg-green-500 border-green-500' : '' }}
-                                            {{ $isCurrent ? 'bg-blue-500 border-blue-500 ring-4 ring-blue-200 animate-pulse' : '' }}
-                                            {{ $isPending ? 'bg-white border-gray-300' : '' }}
-                                            shadow-lg transition-all duration-500">
-                                            
-                                            @if($isCompleted)
-                                                <!-- Icono de check para completado -->
-                                                <i class="fas fa-check text-white text-2xl"></i>
-                                            @elseif($isCurrent)
-                                                <!-- Icono de reloj para actual -->
-                                                <i class="fas fa-clock text-white text-2xl"></i>
-                                            @else
-                                                <!-- Número para pendiente -->
-                                                <span class="text-gray-400 font-bold text-xl">{{ $step->orden }}</span>
-                                            @endif
-                                        </div>
-                                        
-                                        <!-- Información del paso -->
-                                        <div class="mt-4 text-center px-2">
-                                            <p class="text-sm font-bold {{ $isCurrent ? 'text-blue-600' : ($isCompleted ? 'text-green-600' : 'text-gray-500') }}">
-                                                {{ $step->nombre }}
-                                            </p>
-                                            @if($step->descripcion)
-                                                <p class="text-xs text-gray-500 mt-1 line-clamp-2">
-                                                    {{ Str::limit($step->descripcion, 50) }}
-                                                </p>
-                                            @endif
-                                            
-                                            <!-- Badge de estado -->
-                                            <div class="mt-2">
-                                                @if($isCompleted)
-                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                                        <i class="fas fa-check-circle mr-1"></i>
-                                                        Completado
-                                                    </span>
-                                                @elseif($isCurrent)
-                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                                        <i class="fas fa-spinner fa-spin mr-1"></i>
-                                                        En proceso
-                                                    </span>
-                                                @else
-                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-                                                        <i class="fas fa-hourglass-half mr-1"></i>
-                                                        Pendiente
-                                                    </span>
-                                                @endif
+
+                                <div class="flex flex-col items-center text-center" style="min-width: 220px; position: relative;">
+                                    <div role="img" aria-label="Paso {{ $step->orden }} - {{ $step->nombre }}">
+                                        @if($isCompleted)
+                                            <div class="step-circle completed flex items-center justify-center w-24 h-24 rounded-full bg-white border-4 border-green-400 shadow-sm">
+                                                <i class="fas fa-check text-green-600 text-xl"></i>
                                             </div>
-                                            
-                                            <!-- Responsable -->
-                                            @if($step->responsable_rol)
-                                                <p class="text-xs text-gray-500 mt-2">
-                                                    <i class="fas fa-user mr-1"></i>
-                                                    {{ $step->responsable_rol }}
-                                                </p>
+                                        @elseif($isCurrent)
+                                            <div class="step-circle current flex items-center justify-center w-24 h-24 rounded-full bg-white border-4 border-blue-400 shadow-sm">
+                                                <i class="fas fa-spinner fa-spin text-blue-500 text-xl"></i>
+                                            </div>
+                                        @else
+                                            <div class="step-circle pending flex items-center justify-center w-24 h-24 rounded-full bg-white border-2 border-gray-200 shadow-sm">
+                                                <span class="font-bold text-gray-600">{{ $step->orden }}</span>
+                                            </div>
+                                        @endif
+                                    </div>
+
+                                    <div class="mt-4 w-52">
+                                        <p class="text-sm font-semibold {{ $isCurrent ? 'text-blue-600' : ($isCompleted ? 'text-green-600' : 'text-gray-700') }}">{{ $step->nombre }}</p>
+                                        @if($step->descripcion)
+                                            <p class="text-xs text-gray-500 mt-1 line-clamp-2">{{ Str::limit($step->descripcion, 60) }}</p>
+                                        @endif
+                                        <div class="mt-2 text-xs text-gray-500">
+                                            <i class="fas fa-user mr-1"></i>
+                                            @if($stepProgress && $stepProgress->asignado)
+                                                <span class="font-medium text-gray-800">{{ $stepProgress->asignado->name }}</span>
+                                                @if($stepProgress->asignado->gerencia)
+                                                    <span class="text-gray-500"> - {{ $stepProgress->asignado->gerencia->nombre }}</span>
+                                                @endif
+                                                @if($stepProgress->fecha_limite)
+                                                    <div class="text-xs text-gray-400">Quedan {{ now()->diffInDays($stepProgress->fecha_limite, false) }} días</div>
+                                                @endif
+                                            @elseif($step->responsable_rol)
+                                                <span class="text-gray-700">{{ $step->responsable_rol }}</span>
+                                            @else
+                                                <span class="text-gray-500">Sin asignar</span>
                                             @endif
                                         </div>
                                     </div>
-                                    
-                                    <!-- Línea conectora (excepto en el último) -->
-                                    @if(!$loop->last)
-                                        <div class="flex items-center justify-center" style="width: 80px; margin-top: -120px;">
-                                            <div class="h-1 w-full {{ $isCompleted ? 'bg-green-500' : 'bg-gray-300' }} transition-all duration-500"></div>
-                                            <div class="ml-2">
-                                                <i class="fas fa-arrow-right text-2xl {{ $isCompleted ? 'text-green-500' : 'text-gray-300' }}"></i>
-                                            </div>
-                                            <div class="h-1 w-full {{ $isCompleted ? 'bg-green-500' : 'bg-gray-300' }} transition-all duration-500"></div>
-                                        </div>
-                                    @endif
                                 </div>
+
+                                @if(!$loop->last)
+                                    @php
+                                        $connectorFilled = $steps[$index]->orden < $currentStepOrder;
+                                    @endphp
+                                    <div class="flex items-center" style="height: 1px; align-self: center;">
+                                        <div class="h-1 mx-4" style="width: 160px;">
+                                            <div class="h-1 w-full rounded {{ $connectorFilled ? 'bg-green-300' : 'bg-gray-200' }}"></div>
+                                        </div>
+                                    </div>
+                                @endif
                             @endforeach
                         </div>
                     </div>
@@ -387,14 +363,15 @@
                                 <i class="fas fa-paperclip mr-2"></i>
                                 Documentos Adjuntos
                                 <span class="ml-2 px-2 py-1 bg-white text-green-600 rounded-full text-sm font-bold">
-                                    {{ $expediente->documentos->count() }}
+                                    {{ isset($visibleDocuments) ? $visibleDocuments->count() : $expediente->documentos->count() }}
                                 </span>
                             </h2>
                         </div>
                         <div class="p-6">
-                            @if($expediente->documentos->count() > 0)
+                            @php $docsToShow = $visibleDocuments ?? $expediente->documentos; @endphp
+                            @if($docsToShow->count() > 0)
                                 <div class="space-y-3">
-                                    @foreach($expediente->documentos as $documento)
+                                    @foreach($docsToShow as $documento)
                                         <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition">
                                             <div class="flex items-center space-x-3">
                                                 <div class="flex-shrink-0">

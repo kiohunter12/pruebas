@@ -62,7 +62,7 @@ if ($primerPaso->responsable_tipo === 'gerencia' && $primerPaso->responsable_id)
     if ($gerencia) {
         $usuario = \App\Models\User::where('gerencia_id', $gerencia->id)
             ->whereHas('roles', function($query) {
-                $query->whereIn('name', ['jefe_gerencia', 'gerente', 'subgerente']);
+                $query->whereIn('name', ['gerente', 'subgerente', 'jefe_gerencia']);
             })
             ->first();
         

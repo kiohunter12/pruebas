@@ -108,6 +108,13 @@ class RolesAndPermissionsSeeder extends Seeder
             'clonar_workflows'
         ];
 
+        // Añadir permisos específicos de control de trámites (aprobar/rechazar/observar)
+        $permissions = array_merge($permissions, [
+            'aprobar_tramite',
+            'rechazar_tramite',
+            'observar_tramite'
+        ]);
+
         // Crear todos los permisos
         foreach ($permissions as $permission) {
             Permission::firstOrCreate(['name' => $permission, 'guard_name' => 'web']);
@@ -209,7 +216,11 @@ class RolesAndPermissionsSeeder extends Seeder
             'editar_workflows',
             'ver_workflows',
             'activar_workflows',
-            'clonar_workflows'
+            'clonar_workflows',
+            // Permisos de control de trámites
+            'aprobar_tramite',
+            'rechazar_tramite',
+            'observar_tramite'
         ]);
 
         // ROL: Gerente (antes Funcionario)
@@ -225,7 +236,11 @@ class RolesAndPermissionsSeeder extends Seeder
             'enviar_notificaciones',
             'ver_pagos',
             'gestionar_quejas',
-            'responder_quejas'
+            'responder_quejas',
+            // Control de trámites
+            'aprobar_tramite',
+            'rechazar_tramite',
+            'observar_tramite'
         ]);
 
         // ROL: Subgerente (antes Funcionario Junior)
@@ -236,7 +251,11 @@ class RolesAndPermissionsSeeder extends Seeder
             'subir_documento',
             'enviar_notificaciones',
             'ver_pagos',
-            'gestionar_quejas'
+            'gestionar_quejas',
+            // Control de trámites
+            'aprobar_tramite',
+            'rechazar_tramite',
+            'observar_tramite'
         ]);
 
         // ROL: Ciudadano
@@ -268,7 +287,11 @@ class RolesAndPermissionsSeeder extends Seeder
             'gestionar_quejas',
             'responder_quejas',
             'escalar_quejas',
-            'ver_workflows'
+            'ver_workflows',
+            // Control de trámites
+            'aprobar_tramite',
+            'rechazar_tramite',
+            'observar_tramite'
         ]);
 
         
